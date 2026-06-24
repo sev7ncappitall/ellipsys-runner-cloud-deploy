@@ -15,7 +15,7 @@ spec:
     - name: runner
       image:
         registry_type: GHCR
-        repository: sev7ncappitall/ellipsys-runner-headless
+        repository: sev7ncappitall/ellipsys-runner-cloud-headless
         tag: latest
       instance_size_slug: basic-xxs
       instance_count: 1

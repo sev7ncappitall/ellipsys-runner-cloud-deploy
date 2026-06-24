@@ -4,7 +4,7 @@ Use this after the GitHub Actions image publish completes.
 
 1. Open the deploy button:
    `https://cloud.digitalocean.com/apps/new?repo=https://github.com/sev7ncappitall/ellipsys-runner-cloud-deploy/tree/main`
-2. Confirm the Worker image resolves to `ghcr.io/sev7ncappitall/ellipsys-runner-headless:latest`.
+2. Confirm the Worker image resolves to `ghcr.io/sev7ncappitall/ellipsys-runner-cloud-headless:latest`.
 3. Set:
    - `PORTAL_BASE_URL=https://ellipsys-app.vercel.app`
    - `RUNNER_TOKEN=<runner token from the portal>`
