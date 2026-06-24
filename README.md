@@ -21,3 +21,5 @@ Every push to `main` builds the headless Docker image from `apps/runner/headless
 [Deploy to DigitalOcean](https://cloud.digitalocean.com/apps/new?repo=https://github.com/sev7ncappitall/ellipsys-runner-cloud-deploy/tree/main)
 
 Subscribers enter broker credentials directly into their own DigitalOcean app as environment variables. Ellipsys infrastructure does not receive or store those credentials.
+
+The DigitalOcean template pins the worker image to the commit-tagged GHCR image. When publishing a new runner build, update `.do/deploy.template.yaml` to the reviewed `sha-<commit>` tag instead of relying on mutable `latest`.

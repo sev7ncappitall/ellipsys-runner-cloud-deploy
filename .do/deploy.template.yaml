@@ -16,7 +16,7 @@ spec:
       image:
         registry_type: GHCR
         repository: sev7ncappitall/ellipsys-runner-cloud-headless
-        tag: latest
+        tag: sha-1177f7f
       instance_size_slug: basic-xxs
       instance_count: 1
       envs:
