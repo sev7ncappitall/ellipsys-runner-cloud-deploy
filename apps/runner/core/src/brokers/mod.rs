@@ -11,6 +11,8 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct OrderInstruction {
+    #[serde(rename = "clientOrderId", default)]
+    pub client_order_id: Option<String>,
     pub symbol: String,
     pub side: String,
     pub quantity: f64,

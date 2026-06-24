@@ -51,7 +51,8 @@ impl IbkrAdapter {
         let path = env::temp_dir().join(SIDECAR_FILENAME);
         let current = fs::read_to_string(&path).unwrap_or_default();
         if current != SIDECAR_SOURCE {
-            fs::write(&path, SIDECAR_SOURCE).map_err(|e| format!("Could not write IBKR sidecar script: {e}"))?;
+            fs::write(&path, SIDECAR_SOURCE)
+                .map_err(|e| format!("Could not write IBKR sidecar script: {e}"))?;
         }
         Ok(path)
     }
@@ -62,7 +63,8 @@ impl IbkrAdapter {
         request: &SidecarRequest<'_>,
     ) -> Result<SidecarResponse, String> {
         let script_path = Self::ensure_sidecar_script()?;
-        let payload = serde_json::to_vec(request).map_err(|e| format!("Could not serialize IBKR request: {e}"))?;
+        let payload = serde_json::to_vec(request)
+            .map_err(|e| format!("Could not serialize IBKR request: {e}"))?;
 
         let mut child = Command::new(python_bin)
             .arg(&script_path)
@@ -98,8 +100,8 @@ impl IbkrAdapter {
             return Err(detail);
         }
 
-        let response: SidecarResponse =
-            serde_json::from_str(&stdout).map_err(|e| format!("Invalid IBKR sidecar response: {e}. Raw output: {stdout}"))?;
+        let response: SidecarResponse = serde_json::from_str(&stdout)
+            .map_err(|e| format!("Invalid IBKR sidecar response: {e}. Raw output: {stdout}"))?;
 
         if output.status.success() || response.ok {
             Ok(response)
@@ -112,7 +114,11 @@ impl IbkrAdapter {
         }
     }
 
-    async fn invoke(&self, action: &str, order: Option<&OrderInstruction>) -> Result<SidecarResponse, String> {
+    async fn invoke(
+        &self,
+        action: &str,
+        order: Option<&OrderInstruction>,
+    ) -> Result<SidecarResponse, String> {
         let request = SidecarRequest {
             action,
             is_paper: self.is_paper,
@@ -143,7 +149,9 @@ impl IbkrAdapter {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| "No usable Python runtime was found for the IBKR sidecar".to_string()))
+        Err(last_error.unwrap_or_else(|| {
+            "No usable Python runtime was found for the IBKR sidecar".to_string()
+        }))
     }
 
     fn account_from_response(response: SidecarResponse) -> Result<AccountSnapshot, String> {

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,6 +12,13 @@ use crate::portal_client::{PortalClient, RunnerStatus};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeploymentExecutionState {
+    Running,
+    Paused,
+    Stopped,
+}
 
 /// The whole point of the runner: this loop holds the subscriber's broker
 /// credentials in memory only, polls Ellipsys for instructions Prism/Titan
@@ -52,6 +60,7 @@ pub async fn run_loop(config: RunnerConfig, status: Arc<Mutex<RunnerStatus>>) {
     }
 
     let mut last_heartbeat = std::time::Instant::now() - HEARTBEAT_INTERVAL;
+    let mut deployment_states: HashMap<String, DeploymentExecutionState> = HashMap::new();
 
     loop {
         if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL {
@@ -85,7 +94,8 @@ pub async fn run_loop(config: RunnerConfig, status: Arc<Mutex<RunnerStatus>>) {
         match client.fetch_instructions().await {
             Ok(instructions) => {
                 for instruction in instructions {
-                    handle_instruction(&*adapter, &client, &instruction).await;
+                    handle_instruction(&*adapter, &client, &instruction, &mut deployment_states)
+                        .await;
                 }
                 let mut s = status.lock().await;
                 s.last_poll_at = Some(chrono::Utc::now().to_rfc3339());
@@ -104,13 +114,37 @@ async fn handle_instruction(
     adapter: &dyn crate::brokers::BrokerAdapter,
     client: &PortalClient,
     instruction: &crate::portal_client::Instruction,
+    deployment_states: &mut HashMap<String, DeploymentExecutionState>,
 ) {
     match instruction.kind.as_str() {
         "place_order" => {
+            let state = deployment_states
+                .get(&instruction.deployment_id)
+                .copied()
+                .unwrap_or(DeploymentExecutionState::Running);
+            if state != DeploymentExecutionState::Running {
+                let _ = client
+                    .ack(
+                        &instruction.id,
+                        "failed",
+                        json!({
+                            "status": "blocked",
+                            "error": format!("deployment is {state:?}; order was not sent"),
+                        }),
+                    )
+                    .await;
+                return;
+            }
+
             let order: Result<OrderInstruction, _> =
                 serde_json::from_value(instruction.payload.clone());
             let result = match order {
-                Ok(o) => adapter.submit_order(&o).await,
+                Ok(mut o) => {
+                    if o.client_order_id.is_none() {
+                        o.client_order_id = Some(client_order_id(&instruction.id));
+                    }
+                    adapter.submit_order(&o).await
+                }
                 Err(e) => crate::brokers::OrderResult {
                     success: false,
                     status: "rejected".to_string(),
@@ -131,12 +165,40 @@ async fn handle_instruction(
                 )
                 .await;
         }
-        "pause" | "resume" | "stop" => {
-            // TODO: track a paused/stopped flag per deployment and skip
-            // place_order while set. Today the portal's deployment status
-            // already reflects pause/resume/stop; this ack just confirms
-            // the runner saw it. Enforcing it locally is the next increment.
-            let _ = client.ack(&instruction.id, "acked", json!({})).await;
+        "pause" => {
+            deployment_states.insert(
+                instruction.deployment_id.clone(),
+                DeploymentExecutionState::Paused,
+            );
+            let _ = client
+                .ack(&instruction.id, "acked", json!({ "runnerState": "paused" }))
+                .await;
+        }
+        "resume" => {
+            deployment_states.insert(
+                instruction.deployment_id.clone(),
+                DeploymentExecutionState::Running,
+            );
+            let _ = client
+                .ack(
+                    &instruction.id,
+                    "acked",
+                    json!({ "runnerState": "running" }),
+                )
+                .await;
+        }
+        "stop" => {
+            deployment_states.insert(
+                instruction.deployment_id.clone(),
+                DeploymentExecutionState::Stopped,
+            );
+            let _ = client
+                .ack(
+                    &instruction.id,
+                    "acked",
+                    json!({ "runnerState": "stopped" }),
+                )
+                .await;
         }
         other => {
             let _ = client
@@ -147,5 +209,23 @@ async fn handle_instruction(
                 )
                 .await;
         }
+    }
+}
+
+fn client_order_id(instruction_id: &str) -> String {
+    let safe: String = instruction_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .collect();
+    format!("ellipsys-{safe}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_order_id_is_stable_and_sanitized() {
+        assert_eq!(client_order_id("ins_abc-123!"), "ellipsys-ins_abc-123");
     }
 }

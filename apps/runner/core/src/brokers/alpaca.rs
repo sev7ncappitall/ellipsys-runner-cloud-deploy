@@ -50,6 +50,9 @@ impl AlpacaAdapter {
         payload.insert("side".to_string(), json!(order.side.to_lowercase()));
         payload.insert("type".to_string(), json!(order_type));
         payload.insert("time_in_force".to_string(), json!("day"));
+        if let Some(client_order_id) = order.client_order_id.as_deref() {
+            payload.insert("client_order_id".to_string(), json!(client_order_id));
+        }
 
         if order_type == "limit" {
             if let Some(price) = order.limit_price {
@@ -169,6 +172,7 @@ mod tests {
         OrderInstruction {
             symbol: "aapl".to_string(),
             side: "buy".to_string(),
+            client_order_id: None,
             quantity: 1.0,
             order_type: "market".to_string(),
             limit_price: None,
@@ -200,5 +204,15 @@ mod tests {
         assert_eq!(payload["order_class"], "bracket");
         assert_eq!(payload["stop_loss"]["stop_price"], "185.25");
         assert_eq!(payload["take_profit"]["limit_price"], "194.75");
+    }
+
+    #[test]
+    fn payload_uses_stable_client_order_id_when_present() {
+        let mut order = market_order();
+        order.client_order_id = Some("ellipsys-ins_abc123".to_string());
+
+        let payload = AlpacaAdapter::order_payload(&order);
+
+        assert_eq!(payload["client_order_id"], "ellipsys-ins_abc123");
     }
 }

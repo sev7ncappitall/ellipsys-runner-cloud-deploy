@@ -61,12 +61,18 @@ def order_for(order: dict[str, Any]):
     if order_type == "limit":
         if limit_price is None:
             emit({"ok": False, "status": "rejected", "error": "IBKR limit orders require limit_price"}, exit_code=1)
-        return LimitOrder(side, quantity, float(limit_price))
-    if order_type == "stop":
+        ib_order = LimitOrder(side, quantity, float(limit_price))
+    elif order_type == "stop":
         if stop_price is None:
             emit({"ok": False, "status": "rejected", "error": "IBKR stop orders require stop_loss/stop_price"}, exit_code=1)
-        return StopOrder(side, quantity, float(stop_price))
-    return MarketOrder(side, quantity)
+        ib_order = StopOrder(side, quantity, float(stop_price))
+    else:
+        ib_order = MarketOrder(side, quantity)
+
+    client_order_id = order.get("client_order_id") or order.get("clientOrderId")
+    if client_order_id:
+        ib_order.orderRef = str(client_order_id)[:32]
+    return ib_order
 
 
 async def load_account_snapshot(ib: Any, account_id: str | None) -> dict[str, Any]:

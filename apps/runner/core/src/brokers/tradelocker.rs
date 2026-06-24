@@ -198,6 +198,7 @@ mod tests {
 
     fn base_order() -> OrderInstruction {
         OrderInstruction {
+            client_order_id: None,
             symbol: "XAUUSD".to_string(),
             side: "sell".to_string(),
             quantity: 0.1,
