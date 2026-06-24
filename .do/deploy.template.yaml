@@ -1,0 +1,51 @@
+# DigitalOcean App Platform spec for the cloud-deployed Ellipsys Runner.
+#
+# This public repo is deploy-template only. It does not contain Ellipsys
+# source code or Runner source code. The worker runs the prebuilt headless
+# Runner image below on infrastructure the subscriber owns.
+#
+# Subscriber broker credentials are entered directly into the subscriber's
+# DigitalOcean app as SECRET env vars. Ellipsys infrastructure never receives
+# or stores those credentials.
+spec:
+  name: ellipsys-runner
+  region: nyc
+  workers:
+    - name: runner
+      image:
+        registry_type: GHCR
+        repository: sev7ncappitall/ellipsys-runner-headless
+        tag: latest
+      instance_size_slug: basic-xxs
+      instance_count: 1
+      envs:
+        - key: PORTAL_BASE_URL
+          value: "https://ellipsys-app.vercel.app"
+          type: GENERAL
+        - key: RUNNER_TOKEN
+          value: ""
+          type: SECRET
+        - key: VENUE
+          value: "alpaca"
+          type: GENERAL
+        - key: IS_PAPER
+          value: "true"
+          type: GENERAL
+        - key: ELLIPSYS_CRED_API_KEY
+          value: ""
+          type: SECRET
+        - key: ELLIPSYS_CRED_API_SECRET
+          value: ""
+          type: SECRET
+        - key: ELLIPSYS_CRED_PRIVATE_KEY
+          value: ""
+          type: SECRET
+        - key: ELLIPSYS_CRED_EMAIL
+          value: ""
+          type: SECRET
+        - key: ELLIPSYS_CRED_PASSWORD
+          value: ""
+          type: SECRET
+        - key: ELLIPSYS_CRED_SERVER
+          value: ""
+          type: GENERAL
