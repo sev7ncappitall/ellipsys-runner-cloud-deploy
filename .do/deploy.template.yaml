@@ -1,8 +1,9 @@
 # DigitalOcean App Platform spec for the cloud-deployed Ellipsys Runner.
 #
-# This public repo is deploy-template only. It does not contain Ellipsys
-# source code or Runner source code. The worker runs the prebuilt headless
-# Runner image below on infrastructure the subscriber owns.
+# This public repo contains only the generic headless Runner deploy assets.
+# It does not contain the private Ellipsys app, Titan backend, or strategy
+# source code. The worker runs the headless Runner image below on
+# infrastructure the subscriber owns.
 #
 # Subscriber broker credentials are entered directly into the subscriber's
 # DigitalOcean app as SECRET env vars. Ellipsys infrastructure never receives
@@ -37,6 +38,15 @@ spec:
         - key: ELLIPSYS_CRED_API_SECRET
           value: ""
           type: SECRET
+        - key: ELLIPSYS_CRED_CLIENT_ID
+          value: ""
+          type: GENERAL
+        - key: ELLIPSYS_CRED_HOST
+          value: ""
+          type: GENERAL
+        - key: ELLIPSYS_CRED_PORT
+          value: ""
+          type: GENERAL
         - key: ELLIPSYS_CRED_PRIVATE_KEY
           value: ""
           type: SECRET

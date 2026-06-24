@@ -1,0 +1,18 @@
+[package]
+name = "ellipsys-runner-headless"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "ellipsys-runner-headless"
+path = "src/main.rs"
+
+[dependencies]
+ellipsys-runner-core = { path = "../core" }
+tokio = { version = "1", features = ["full"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
