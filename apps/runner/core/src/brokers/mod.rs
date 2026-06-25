@@ -41,6 +41,15 @@ pub struct AccountSnapshot {
     pub buying_power: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountSummary {
+    pub id: String,
+    #[serde(rename = "accNum")]
+    pub acc_num: String,
+    pub balance: f64,
+    pub currency: String,
+}
+
 /// Mirrors server/routers/titan/adapters/base.py's VenueAdapter — same
 /// contract, ported so the runner can talk to a subscriber's broker
 /// directly using credentials that never leave this machine.
@@ -49,6 +58,20 @@ pub trait BrokerAdapter: Send + Sync {
     async fn authenticate(&self) -> Result<AccountSnapshot, String>;
     async fn get_account(&self) -> Result<AccountSnapshot, String>;
     async fn submit_order(&self, order: &OrderInstruction) -> OrderResult;
+
+    /// All accounts available under this login, if the venue supports more
+    /// than one per credential set (e.g. TradeLocker demo accounts). Empty
+    /// for venues where the credentials map to exactly one account.
+    async fn list_accounts(&self) -> Vec<AccountSummary> {
+        Vec::new()
+    }
+
+    /// Switch which account subsequent get_account/submit_order calls target,
+    /// without re-authenticating. Errors if the venue doesn't support
+    /// multiple accounts or the id isn't one of list_accounts().
+    fn set_active_account(&self, _account_id: &str) -> Result<(), String> {
+        Err("this broker doesn't support selecting an account".to_string())
+    }
 }
 
 pub fn build_adapter(

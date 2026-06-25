@@ -51,7 +51,7 @@ pub async fn run_loop(config: RunnerConfig, status: Arc<Mutex<RunnerStatus>>) {
 
     if let Err(e) = adapter.authenticate().await {
         let _ = client
-            .heartbeat(&venue, "error", None, config.is_paper, None, Some(&e))
+            .heartbeat(&venue, "error", None, config.is_paper, None, Some(&e), &[])
             .await;
         let mut s = status.lock().await;
         s.connected = false;
@@ -74,7 +74,8 @@ pub async fn run_loop(config: RunnerConfig, status: Arc<Mutex<RunnerStatus>>) {
                 ),
                 Err(e) => ("error", None, None, Some(e.clone())),
             };
-            let _ = client
+            let accounts = adapter.list_accounts().await;
+            let hb_result = client
                 .heartbeat(
                     &venue,
                     hb_status,
@@ -82,8 +83,19 @@ pub async fn run_loop(config: RunnerConfig, status: Arc<Mutex<RunnerStatus>>) {
                     config.is_paper,
                     balance,
                     err.as_deref(),
+                    &accounts,
                 )
                 .await;
+            // The subscriber may have picked a different account in the
+            // portal since our last heartbeat; switch to it without
+            // re-authenticating if so.
+            if let Ok(hb) = &hb_result {
+                if let Some(preferred) = &hb.preferred_account_id {
+                    if account_id.as_deref() != Some(preferred.as_str()) {
+                        let _ = adapter.set_active_account(preferred);
+                    }
+                }
+            }
             last_heartbeat = std::time::Instant::now();
 
             let mut s = status.lock().await;

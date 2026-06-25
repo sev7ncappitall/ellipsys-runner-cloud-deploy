@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::brokers::AccountSummary;
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Instruction {
     pub id: String,
@@ -73,7 +75,8 @@ impl PortalClient {
         is_paper: bool,
         balance_usd: Option<f64>,
         error_message: Option<&str>,
-    ) -> Result<(), String> {
+        accounts: &[AccountSummary],
+    ) -> Result<HeartbeatResponse, String> {
         let resp = reqwest::Client::new()
             .post(format!("{}/api/portal/runner/heartbeat", self.base_url))
             .bearer_auth(&self.runner_token)
@@ -84,6 +87,7 @@ impl PortalClient {
                 "isPaper": is_paper,
                 "balanceUsd": balance_usd,
                 "errorMessage": error_message,
+                "accounts": accounts,
                 "runnerVersion": env!("CARGO_PKG_VERSION"),
                 "platform": std::env::consts::OS,
             }))
@@ -93,8 +97,14 @@ impl PortalClient {
         if !resp.status().is_success() {
             return Err(resp.text().await.unwrap_or_default());
         }
-        Ok(())
+        Ok(resp.json().await.unwrap_or_default())
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct HeartbeatResponse {
+    #[serde(rename = "preferredAccountId")]
+    pub preferred_account_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]

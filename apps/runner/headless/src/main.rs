@@ -37,7 +37,7 @@ fn config_from_env() -> RunnerConfig {
 
     RunnerConfig {
         portal_base_url: env_var("PORTAL_BASE_URL")
-            .unwrap_or_else(|| "https://app.ellipsys.com".to_string()),
+            .unwrap_or_else(|| "https://ellipsys-app.vercel.app".to_string()),
         runner_token: env_var("RUNNER_TOKEN"),
         venue: env_var("VENUE"),
         is_paper: env_var("IS_PAPER")

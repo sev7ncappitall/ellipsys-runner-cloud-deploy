@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 
-use super::{AccountSnapshot, BrokerAdapter, OrderInstruction, OrderResult};
+use super::{AccountSnapshot, AccountSummary, BrokerAdapter, OrderInstruction, OrderResult};
 
 /// Port of server/routers/titan/adapters/tradelocker.py.
 pub struct TradeLockerAdapter {
@@ -13,6 +14,7 @@ pub struct TradeLockerAdapter {
     server: String,
     base_url: String,
     session: Mutex<Option<(String, String)>>, // (access_token, account_id)
+    accounts: Mutex<Vec<Value>>,              // raw all-accounts entries from the last login
 }
 
 impl TradeLockerAdapter {
@@ -30,6 +32,7 @@ impl TradeLockerAdapter {
                 "https://live.tradelocker.com/backend-api".to_string()
             },
             session: Mutex::new(None),
+            accounts: Mutex::new(Vec::new()),
         }
     }
 
@@ -39,7 +42,11 @@ impl TradeLockerAdapter {
             "password": self.password,
             "server": self.server,
         });
-        let resp = reqwest::Client::new()
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|e| e.to_string())?;
+        let resp = client
             .post(format!("{}/auth/jwt/token", self.base_url))
             .json(&payload)
             .send()
@@ -54,17 +61,44 @@ impl TradeLockerAdapter {
             .and_then(|v| v.as_str())
             .ok_or("TradeLocker authentication failed")?
             .to_string();
-        let account_id = data
-            .get("accountId")
+
+        // The token response no longer embeds account info; fetch it separately
+        // and prefer the account with the highest balance (demo accounts often
+        // include an unfunded default alongside the funded one).
+        let accounts_resp = client
+            .get(format!("{}/auth/jwt/all-accounts", self.base_url))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .send()
+            .await
+            .map_err(|e| format!("Could not fetch TradeLocker accounts: {e}"))?;
+        if !accounts_resp.status().is_success() {
+            let status = accounts_resp.status();
+            let body = accounts_resp.text().await.unwrap_or_default();
+            return Err(format!("Could not fetch TradeLocker accounts ({status}): {body}"));
+        }
+        let accounts_data: Value = accounts_resp.json().await.map_err(|e| e.to_string())?;
+        let accounts = accounts_data
+            .get("accounts")
+            .and_then(|a| a.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let balance_of = |v: &Value| -> f64 {
+            v.get("accountBalance")
+                .and_then(|b| b.as_str())
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0)
+        };
+        let account = accounts
+            .iter()
+            .max_by(|a, b| balance_of(a).total_cmp(&balance_of(b)))
+            .ok_or("TradeLocker account lookup returned no accounts")?;
+        let account_id = account
+            .get("id")
             .and_then(|v| v.as_str())
-            .or_else(|| {
-                data.get("accounts")
-                    .and_then(|a| a.get(0))
-                    .and_then(|a| a.get("id"))
-                    .and_then(|v| v.as_str())
-            })
-            .ok_or("TradeLocker authentication failed")?
+            .ok_or("TradeLocker account lookup missing id")?
             .to_string();
+
+        *self.accounts.lock().unwrap() = accounts;
         *self.session.lock().unwrap() = Some((access_token.clone(), account_id.clone()));
         Ok((access_token, account_id))
     }
@@ -74,6 +108,21 @@ impl TradeLockerAdapter {
             return Ok(s);
         }
         self.login().await
+    }
+
+    /// TradeLocker's /trade endpoints key off `accNum` (a small per-login
+    /// index, e.g. "1"/"2"), not the `id` used in the URL path — they are
+    /// different fields on the same all-accounts entry.
+    fn acc_num_for(&self, account_id: &str) -> String {
+        self.accounts
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|a| a.get("id").and_then(|v| v.as_str()) == Some(account_id))
+            .and_then(|a| a.get("accNum"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| account_id.to_string())
     }
 
     fn order_payload(order: &OrderInstruction) -> Value {
@@ -123,10 +172,11 @@ impl BrokerAdapter for TradeLockerAdapter {
 
     async fn get_account(&self) -> Result<AccountSnapshot, String> {
         let (token, account_id) = self.session().await?;
+        let acc_num = self.acc_num_for(&account_id);
         let resp = reqwest::Client::new()
             .get(format!("{}/trade/accounts/{}", self.base_url, account_id))
             .header("Authorization", format!("Bearer {token}"))
-            .header("accNum", &account_id)
+            .header("accNum", &acc_num)
             .send()
             .await
             .map_err(|e| e.to_string())?;
@@ -151,6 +201,7 @@ impl BrokerAdapter for TradeLockerAdapter {
                 }
             }
         };
+        let acc_num = self.acc_num_for(&account_id);
         let payload = Self::order_payload(order);
         let resp = reqwest::Client::new()
             .post(format!(
@@ -158,7 +209,7 @@ impl BrokerAdapter for TradeLockerAdapter {
                 self.base_url, account_id
             ))
             .header("Authorization", format!("Bearer {token}"))
-            .header("accNum", &account_id)
+            .header("accNum", &acc_num)
             .json(&payload)
             .send()
             .await;
@@ -189,6 +240,51 @@ impl BrokerAdapter for TradeLockerAdapter {
                 ..Default::default()
             },
         }
+    }
+
+    async fn list_accounts(&self) -> Vec<AccountSummary> {
+        if self.accounts.lock().unwrap().is_empty() {
+            let _ = self.session().await;
+        }
+        self.accounts
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|a| {
+                Some(AccountSummary {
+                    id: a.get("id")?.as_str()?.to_string(),
+                    acc_num: a.get("accNum")?.as_str()?.to_string(),
+                    balance: a
+                        .get("accountBalance")
+                        .and_then(|b| b.as_str())
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(0.0),
+                    currency: a
+                        .get("currency")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("USD")
+                        .to_string(),
+                })
+            })
+            .collect()
+    }
+
+    fn set_active_account(&self, account_id: &str) -> Result<(), String> {
+        let known = self
+            .accounts
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|a| a.get("id").and_then(|v| v.as_str()) == Some(account_id));
+        if !known {
+            return Err(format!("Unknown TradeLocker account id: {account_id}"));
+        }
+        let mut session = self.session.lock().unwrap();
+        let Some((token, _)) = session.clone() else {
+            return Err("not logged in yet".to_string());
+        };
+        *session = Some((token, account_id.to_string()));
+        Ok(())
     }
 }
 
